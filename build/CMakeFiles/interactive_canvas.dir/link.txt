@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/interactive_canvas.dir/src/main.cpp.o CMakeFiles/interactive_canvas.dir/src/console_input_manager.cpp.o -o bin/interactive_canvas  /usr/lib/x86_64-linux-gnu/libSDL2main.a /usr/lib/x86_64-linux-gnu/libSDL2.so /usr/lib/x86_64-linux-gnu/libSDL2_ttf.so 

@@ -13,7 +13,7 @@
 // Window dimensions
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 600;
-const int FONT_SIZE = 64; // Base font size
+const int FONT_SIZE = 48; // Base font size
 
 // Global variable for the text to display, will be updated by console input
 std::string g_displayText = "Type your name!";
@@ -116,7 +116,7 @@ int main(int argc, char* args[]) {
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
 
     // Load font
-    TTF_Font* font = TTF_OpenFont("arial.ttf", FONT_SIZE); // Using a fixed FONT_SIZE
+    TTF_Font* font = TTF_OpenFont("/home/gabbar/Projects/Interactive Canvas Dynamic Text Renderer/build/bin/arial.ttf", FONT_SIZE); // Using a fixed FONT_SIZE
     if (!font) {
         std::cerr << "Failed to load font! SDL_ttf Error: " << TTF_GetError() << std::endl;
         SDL_DestroyRenderer(renderer);

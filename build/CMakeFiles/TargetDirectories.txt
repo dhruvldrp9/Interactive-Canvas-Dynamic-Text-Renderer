@@ -1,0 +1,3 @@
+/home/gabbar/Projects/Interactive Canvas Dynamic Text Renderer/build/CMakeFiles/interactive_canvas.dir
+/home/gabbar/Projects/Interactive Canvas Dynamic Text Renderer/build/CMakeFiles/edit_cache.dir
+/home/gabbar/Projects/Interactive Canvas Dynamic Text Renderer/build/CMakeFiles/rebuild_cache.dir
