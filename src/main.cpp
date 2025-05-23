@@ -4,80 +4,158 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <algorithm> // For std::max
-#include <thread>    // For std::this_thread::sleep_for
-#include <chrono>    // For std::chrono::milliseconds
+#include <algorithm>
+#include <thread>
+#include <chrono>
+#include <cmath>
+#include <filesystem>
 
-#include "console_input_manager.hpp" // Include our new manager
+#include "console_input_manager.hpp"
 
 // Window dimensions
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 600;
-const int FONT_SIZE = 48; // Base font size
+const int FONT_SIZE = 48;
 
-// Global variable for the text to display, will be updated by console input
-std::string g_displayText = "Type your name!";
+// Animation parameters
+const float TYPING_SPEED = 0.08f;        // Time between each character appearing
+const float CURSOR_BLINK_SPEED = 0.5f;   // Cursor blink speed
+const float FADE_DURATION = 0.3f;        // Duration of fade-in effect
+const float CURSOR_WIDTH = 3.0f;         // Width of the cursor
+const float CURSOR_HEIGHT = 0.8f;        // Height of cursor relative to text
 
-// Function to render text with changing color and dynamic sizing
-void renderDynamicText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text, int x, int y, double time) {
-    if (text.empty()) {
-        return; // Nothing to render if text is empty
+// Function to find font file
+std::string findFontFile() {
+    std::vector<std::string> possiblePaths = {
+        "arial.ttf",
+        "../arial.ttf",
+        "build/bin/arial.ttf",
+        "../build/bin/arial.ttf"
+    };
+
+    for (const auto& path : possiblePaths) {
+        if (std::filesystem::exists(path)) {
+            return path;
+        }
     }
+    return "";
+}
 
-    // Calculate color components based on time for a dynamic effect
-    Uint8 r = static_cast<Uint8>(128 + 127 * std::sin(time * 0.5));
-    Uint8 g = static_cast<Uint8>(128 + 127 * std::sin(time * 0.7));
-    Uint8 b = static_cast<Uint8>(128 + 127 * std::sin(time * 0.9));
-
-    SDL_Color textColor = {r, g, b, 255}; // R, G, B, Alpha
-
-    // Create a surface from the text
-    SDL_Surface* textSurface = TTF_RenderUTF8_Blended(font, text.c_str(), textColor);
-    if (!textSurface) {
-        std::cerr << "Unable to render text surface! SDL_ttf Error: " << TTF_GetError() << std::endl;
+// Function to render text with professional typing animation
+void renderDynamicText(SDL_Renderer* renderer, TTF_Font* font, const std::string& text, int x, int y, double time, int visibleChars) {
+    if (text.empty() || !font) {
         return;
     }
 
-    // Create a texture from the surface
-    SDL_Texture* textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
-    if (!textTexture) {
-        std::cerr << "Unable to create texture from rendered text! SDL Error: " << SDL_GetError() << std::endl;
-        SDL_FreeSurface(textSurface);
-        return;
+    std::vector<SDL_Surface*> charSurfaces;
+    std::vector<SDL_Texture*> charTextures;
+    std::vector<SDL_Rect> charRects;
+    std::vector<float> charAlphas;
+    
+    int textWidth = 0;
+    int textHeight = 0;
+    std::vector<int> charWidths;
+    std::vector<int> charHeights;
+
+    // Calculate total width and height of the text and store individual character dimensions
+    for (size_t i = 0; i < text.length(); ++i) {
+        if (i >= visibleChars) break;
+        
+        int minx, maxx, miny, maxy, advance;
+        if (TTF_GlyphMetrics(font, text[i], &minx, &maxx, &miny, &maxy, &advance) != 0) {
+            std::cerr << "Failed to get glyph metrics for character: " << text[i] << std::endl;
+            continue;
+        }
+        charWidths.push_back(advance);
+        charHeights.push_back(maxy - miny);
+        textWidth += advance;
+        textHeight = std::max(textHeight, maxy - miny);
     }
 
-    // Get texture dimensions
-    int text_w, text_h;
-    SDL_QueryTexture(textTexture, NULL, NULL, &text_w, &text_h);
+    // Create surfaces and textures for each character and calculate their positions
+    int currentX = x - textWidth / 2; // Start X for centering
+    for (size_t i = 0; i < text.length(); ++i) {
+        if (i >= visibleChars) break;
 
-    // Calculate scaling factor to fit text within the screen width, with some padding
-    double scale_factor_w = (SCREEN_WIDTH * 0.9) / text_w; // 90% of screen width
-    double scale_factor_h = (SCREEN_HEIGHT * 0.9) / text_h; // 90% of screen height
-    double scale_factor = std::min(scale_factor_w, scale_factor_h); // Use the smaller factor to ensure it fits both ways
+        SDL_Color textColor = {255, 255, 255, 255}; // White color
+        
+        // Create surface for single character
+        std::string singleChar = text.substr(i, 1);
+        SDL_Surface* charSurface = TTF_RenderUTF8_Blended(font, singleChar.c_str(), textColor);
+        if (!charSurface) {
+            std::cerr << "Failed to render character surface: " << singleChar << std::endl;
+            continue;
+        }
 
-    // Apply scaling, ensuring it doesn't shrink too much if the text is short
-    // And also ensure it doesn't grow beyond the original font size if not needed
-    scale_factor = std::min(scale_factor, 1.0); // Don't scale up beyond original size for short text
-    scale_factor = std::max(scale_factor, 0.5); // Don't scale down too much either
+        SDL_Texture* charTexture = SDL_CreateTextureFromSurface(renderer, charSurface);
+        if (!charTexture) {
+            std::cerr << "Failed to create texture for character: " << singleChar << std::endl;
+            SDL_FreeSurface(charSurface);
+            continue;
+        }
 
-    text_w = static_cast<int>(text_w * scale_factor);
-    text_h = static_cast<int>(text_h * scale_factor);
+        charSurfaces.push_back(charSurface);
+        charTextures.push_back(charTexture);
+        
+        // Calculate fade-in alpha for this character
+        float charTime = time - (i * TYPING_SPEED);
+        float alpha = std::min(1.0f, charTime / FADE_DURATION);
+        charAlphas.push_back(alpha);
 
+        SDL_Rect charRect = {
+            static_cast<int>(currentX),
+            static_cast<int>(y - textHeight / 2), // Center vertically based on total text height
+            charSurface->w,
+            charSurface->h
+        };
 
-    // Calculate position to center the text
-    SDL_Rect renderQuad = { x - text_w / 2, y - text_h / 2, text_w, text_h };
+        charRects.push_back(charRect);
+        currentX += charWidths[i]; // Move X for the next character based on glyph advance
+    }
 
-    // Render texture to screen
-    SDL_RenderCopy(renderer, textTexture, NULL, &renderQuad);
+    // Render each character with fade-in effect
+    for (size_t i = 0; i < charTextures.size(); ++i) {
+        SDL_SetTextureAlphaMod(charTextures[i], static_cast<Uint8>(charAlphas[i] * 255));
+        SDL_RenderCopy(renderer, charTextures[i], NULL, &charRects[i]);
+    }
+
+    // Render cursor if typing is not complete and there are visible characters
+    if (visibleChars < text.length() && !charRects.empty()) {
+        float cursorAlpha = (sin(time * M_PI * 2 / CURSOR_BLINK_SPEED) + 1.0f) * 0.5f;
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, static_cast<Uint8>(cursorAlpha * 255));
+        
+        // Position cursor after the last visible character
+        int cursorX = charRects.back().x + charRects.back().w; // Position after the last char
+        
+        SDL_Rect cursorRect = {
+            cursorX,
+            static_cast<int>(y - textHeight * CURSOR_HEIGHT / 2),
+            static_cast<int>(CURSOR_WIDTH),
+            static_cast<int>(textHeight * CURSOR_HEIGHT)
+        };
+        SDL_RenderFillRect(renderer, &cursorRect);
+    }
 
     // Clean up
-    SDL_DestroyTexture(textTexture);
-    SDL_FreeSurface(textSurface);
+    for (size_t i = 0; i < charTextures.size(); ++i) {
+        if (charTextures[i]) SDL_DestroyTexture(charTextures[i]);
+    }
+    for (size_t i = 0; i < charSurfaces.size(); ++i) {
+        if (charSurfaces[i]) SDL_FreeSurface(charSurfaces[i]);
+    }
 }
 
 int main(int argc, char* args[]) {
-    // Create an instance of our console input manager
     ConsoleInputManager inputManager;
+    std::string displayText;
+
+    // Get initial input before showing window
+    std::cout << "Enter your name: ";
+    std::getline(std::cin, displayText);
+    
+    if (displayText.empty()) {
+        displayText = "Anonymous";
+    }
 
     // Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -94,7 +172,7 @@ int main(int argc, char* args[]) {
 
     // Create window
     SDL_Window* window = SDL_CreateWindow("Interactive Canvas", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                          SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+                                        SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
         std::cerr << "Window could not be created! SDL_Error: " << SDL_GetError() << std::endl;
         TTF_Quit();
@@ -112,11 +190,18 @@ int main(int argc, char* args[]) {
         return 1;
     }
 
-    // Set renderer draw color to black
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF);
+    // Find and load font
+    std::string fontPath = findFontFile();
+    if (fontPath.empty()) {
+        std::cerr << "Could not find arial.ttf in any of the expected locations!" << std::endl;
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        TTF_Quit();
+        SDL_Quit();
+        return 1;
+    }
 
-    // Load font
-    TTF_Font* font = TTF_OpenFont("/home/gabbar/Projects/Interactive Canvas Dynamic Text Renderer/build/bin/arial.ttf", FONT_SIZE); // Using a fixed FONT_SIZE
+    TTF_Font* font = TTF_OpenFont(fontPath.c_str(), FONT_SIZE);
     if (!font) {
         std::cerr << "Failed to load font! SDL_ttf Error: " << TTF_GetError() << std::endl;
         SDL_DestroyRenderer(renderer);
@@ -129,51 +214,42 @@ int main(int argc, char* args[]) {
     // Start the console input manager thread
     inputManager.start();
 
-    // Main loop flag
     bool quit = false;
-
-    // Event handler
     SDL_Event e;
-
-    // Timer for dynamic effects
     Uint32 startTime = SDL_GetTicks();
+    int visibleChars = 0;
+    double lastCharTime = 0.0;
 
     // Game loop
     while (!quit) {
-        // --- Process Console Input ---
-        std::string newLine;
-        if (inputManager.getNewLine(newLine)) {
-            g_displayText = newLine; // Update global display text
-            if (g_displayText.empty()) {
-                g_displayText = "Type your name!"; // Default if empty string entered
-            }
-            std::cout << "Displaying: '" << g_displayText << "'\n";
-        }
-
-        // --- Process SDL Events ---
+        // Process SDL Events
         while (SDL_PollEvent(&e) != 0) {
             if (e.type == SDL_QUIT) {
                 quit = true;
             }
         }
 
-        // --- Rendering ---
+        // Update typing animation
+        double currentTime = (SDL_GetTicks() - startTime) / 1000.0;
+        if (currentTime - lastCharTime >= TYPING_SPEED && visibleChars < displayText.length()) {
+            visibleChars++;
+            lastCharTime = currentTime;
+        }
+
+        // Rendering
         SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xFF); // Black background
         SDL_RenderClear(renderer);
 
-        double time = (SDL_GetTicks() - startTime) / 1000.0; // Time in seconds
-
-        renderDynamicText(renderer, font, g_displayText, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, time);
+        renderDynamicText(renderer, font, displayText, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, currentTime, visibleChars);
 
         SDL_RenderPresent(renderer);
 
-        // Add a small delay to prevent busy-waiting if no events or input,
-        // and to keep CPU usage down. Roughly 60 FPS target if vsync isn't perfect.
+        // Cap at 60 FPS
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 
-    // Cleanup resources
-    inputManager.stop(); // Stop the input thread gracefully
+    // Cleanup
+    inputManager.stop();
     TTF_CloseFont(font);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
